@@ -1,8 +1,25 @@
+//! # Email validator
+//!
+//! Form validates email address based on rfc822 spec
+//!
+//!
+//! ```
+//! use email_parser::PestError;
+//! use email_parser::Rule;
+//! use email_parser::Email;
+//!
+//! fn main() -> Result<(), PestError<Rule>> {
+//!     let email_result = Email::parse("test@example.com")?;
+//!     Ok(())
+//! }
+//! ```
+
+
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
-use pest::error::Error as PestError;
+pub use pest::error::Error as PestError;
 use pest::iterators::Pair;
 use pest::Parser;
 
@@ -12,20 +29,32 @@ const _GRAMMAR: &'static str = include_str!("../data/emailaddress.pest");
 #[grammar = "../data/emailaddress.pest"]
 struct EmailParser;
 
-#[derive(Debug)]
+/// ```
+/// use email_parser::PestError;
+/// use email_parser::Rule;
+/// use email_parser::Email;
+///
+/// fn main() -> Result<(), PestError<Rule>> {
+///     let email_result = Email::parse("test@example.com")?;
+///     Ok(())
+/// }
+/// ```
+#[derive(Debug, PartialEq)]
 pub struct Email {
-    address: String,
-    group: Option<String>,
-    mailbox: Option<String>,
-    routeaddr: Option<String>,
-    route: Option<String>,
-    addrspec: Option<String>,
-    localpart: Option<String>,
-    domain: Option<String>,
-    comment: Option<String>,
+    pub address: String,
+    pub group: Option<String>,
+    pub mailbox: Option<String>,
+    pub mailboxes: Option<Vec<String>>,
+    pub displayname: Option<String>,
+    pub routeaddr: Option<String>,
+    pub route: Option<String>,
+    pub localpart: Option<String>,
+    pub domain: Option<String>,
+    pub comment: Option<String>,
 }
 
 impl Email {
+    /// Creates a new Email struct without logic. You probably want to use `parse`.
     pub fn new(email: String) -> Self {
         Email {
             address: email,
@@ -33,6 +62,7 @@ impl Email {
         }
     }
 
+    /// Parses `email` and returns on success an `Email` struct with `email` split into its components.
     pub fn parse<S>(email: S) -> Result<Self, PestError<Rule>>
     where
         S: Into<String>,
@@ -50,12 +80,14 @@ impl Email {
 impl Default for Email {
     fn default() -> Self {
         Email {
+            /// ping pong
             address: String::new(),
             group: None,
             mailbox: None,
+            mailboxes: None,
+            displayname: None,
             routeaddr: None,
             route: None,
-            addrspec: None,
             localpart: None,
             domain: None,
             comment: None,
@@ -73,9 +105,18 @@ fn set_attribute(email: &mut Email, pair: Pair<Rule>) {
     match pair.as_rule() {
         Rule::group => email.group = Some(String::from(pair.as_str())),
         Rule::mailbox => email.mailbox = Some(String::from(pair.as_str())),
+        Rule::mailboxes => match &mut email.mailboxes {
+            Some(x) => {
+                let tmp = String::from(pair.as_str());
+                if &tmp != "," {
+                    x.push(tmp)
+                }
+            }
+            None => email.mailboxes = Some(vec![String::from(pair.as_str())]),
+        },
+        Rule::displayname => email.displayname = Some(String::from(pair.as_str())),
         Rule::routeaddr => email.routeaddr = Some(String::from(pair.as_str())),
         Rule::route => email.route = Some(String::from(pair.as_str())),
-        Rule::addrspec => email.addrspec = Some(String::from(pair.as_str())),
         Rule::localpart => email.localpart = Some(String::from(pair.as_str())),
         Rule::domain => email.domain = Some(String::from(pair.as_str())),
         Rule::comment => email.comment = Some(String::from(pair.as_str())),
@@ -85,9 +126,7 @@ fn set_attribute(email: &mut Email, pair: Pair<Rule>) {
 
 fn parse_email_pair(email: &mut Email, pair: Pair<Rule>) {
     let inner: Vec<Pair<Rule>> = pair.clone().into_inner().collect();
-    if inner.len() == 0 {
-        set_attribute(email, pair)
-    };
+    set_attribute(email, pair);
     for t in inner {
         parse_email_pair(email, t)
     }
@@ -96,51 +135,152 @@ fn parse_email_pair(email: &mut Email, pair: Pair<Rule>) {
 #[cfg(test)]
 macro_rules! test_parse {
     ($t:expr) => {
-        match Email::parse($t){
+        match Email::parse($t) {
             Ok(_x) => (),
-            Err(e) => {println!("{}", e); panic!()}
+            Err(e) => {
+                println!("{}", e);
+                panic!()
+            }
         }
     };
 }
 
-// tests based on examples from antlr https://github.com/antlr/grammars-v4/tree/master/rfc822-emailaddress
-#[test]
-fn example1() {
-    test_parse!("tom@khubla.com");
+#[cfg(test)]
+macro_rules! test_not_parse {
+    ($t:expr) => {
+        match Email::parse($t) {
+            Ok(x) => {
+                println!("{}", x);
+                panic!()
+            }
+            Err(_e) => (),
+        }
+    };
 }
 
 #[test]
-fn example2() {
-    test_parse!("very.common@example.com")
-}
-#[test]
-fn example3() {
-    test_parse!("disposable.style.email.with+symbol@example.com")
+fn valid() {
+    // from https://en.wikipedia.org/wiki/Email_address
+    const VALID: [&'static str; 17] = [
+        "simple@example.com",
+        "very.common@example.com",
+        "disposable.style.email.with+symbol@example.com",
+        "other.email-with-hyphen@example.com",
+        "fully-qualified-domain@example.com",
+        "user.name+tag+sorting@example.com",
+        "x@example.com",
+        "example-indeed@strange-example.com",
+        "admin@mailserver1",
+        "example@s.example",
+        r#"" "@example.org"#,
+        r#""john..doe"@example.org"#,
+        "jsmith@[IPv6:2001:db8::1]",
+        "examples:test1@example.com,test2@example.com;",
+        "test<test@example.com>",
+        r#""Test Example"<@domain,@domain2:test@example.com>"#,
+        r#"examples:"Test Example"<test@example.com>,peter<peter@example.com>;"#,
+    ];
+
+    for v in VALID.iter() {
+        test_parse!(*v)
+    }
 }
 
 #[test]
-fn example4() {
-    test_parse!("other.email-with-dash@example.com")
+fn invalid() {
+    const INVALID: [&'static str; 6] = [
+        "Abc.example.com",
+        "A@b@c@example.com",
+        r#"a"b(c)d,e:f;g<h>i[j\k]l@example.com"#,
+        r#"just"not"right@example.com"#,
+        r#"this is"not\allowed@example.com"#,
+        r#"this\ still\"not\\allowed@example.com"#,
+    ];
+
+    for v in INVALID.iter() {
+        test_not_parse!(*v)
+    }
 }
 
 #[test]
-fn example5() {
-    test_parse!("x@example.com")
+fn parse_correct() {
+    let email = Email::parse("jsmith@[IPv6:2001:db8::1]").unwrap();
+
+    let expect = Email {
+        address: String::from("jsmith@[IPv6:2001:db8::1]"),
+        mailbox: Some(String::from("jsmith@[IPv6:2001:db8::1]")),
+        localpart: Some(String::from("jsmith")),
+        domain: Some(String::from("[IPv6:2001:db8::1]")),
+        ..Default::default()
+    };
+
+    assert_eq!(email, expect);
 }
 
 #[test]
-fn example6() {
-    test_parse!(r#""much.more unusual"@example.com"#)
+fn parse_correct_2() {
+    let email = Email::parse("examples:test1@example.com,test2@example.com;").unwrap();
+
+    let expect = Email {
+        address: String::from("examples:test1@example.com,test2@example.com;"),
+        group: Some(String::from(
+            "examples:test1@example.com,test2@example.com;",
+        )),
+        mailboxes: Some(vec![
+            String::from("test1@example.com"),
+            String::from("test2@example.com"),
+        ]),
+        mailbox: Some(String::from("test2@example.com")),
+        displayname: Some(String::from("examples")),
+        localpart: Some(String::from("test2")),
+        domain: Some(String::from("example.com")),
+        ..Default::default()
+    };
+
+    assert_eq!(email, expect);
 }
+
 #[test]
-fn example7() {
-    test_parse!("example-indeed@strange-example.com")
+fn parse_correct_3() {
+    let email = Email::parse(r#""Test Example"<@domain,@domain2:test@example.com>"#).unwrap();
+    let expect = Email {
+        address: String::from(r#""Test Example"<@domain,@domain2:test@example.com>"#),
+        mailbox: Some(String::from(
+            r#""Test Example"<@domain,@domain2:test@example.com>"#,
+        )),
+        route: Some(String::from("@domain,@domain2:")),
+        routeaddr: Some(String::from("<@domain,@domain2:test@example.com>")),
+        localpart: Some(String::from("test")),
+        domain: Some(String::from("example.com")),
+        ..Default::default()
+    };
+
+    assert_eq!(email, expect);
 }
+
 #[test]
-fn example8() {
-    test_parse!("admin@mailserver1")
-}
-#[test]
-fn example9() {
-    test_parse!("example@s.solutions")
+fn parse_correct_4() {
+    let email =
+        Email::parse(r#"examples:"Test Example"<test@example.com>,test2<test2@example.com>;"#)
+            .unwrap();
+    let expect = Email {
+        address: String::from(
+            r#"examples:"Test Example"<test@example.com>,test2<test2@example.com>;"#,
+        ),
+        group: Some(String::from(
+            r#"examples:"Test Example"<test@example.com>,test2<test2@example.com>;"#,
+        )),
+        mailboxes: Some(vec![
+            String::from("\"Test Example\"<test@example.com>"),
+            String::from("test2<test2@example.com>"),
+        ]),
+        mailbox: Some(String::from("test2<test2@example.com>")),
+        routeaddr: Some(String::from("<test2@example.com>")),
+        displayname: Some(String::from("examples")),
+        localpart: Some(String::from("test2")),
+        domain: Some(String::from("example.com")),
+        ..Default::default()
+    };
+
+    assert_eq!(email, expect);
 }

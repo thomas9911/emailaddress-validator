@@ -1,104 +1,82 @@
 /*
-from https://github.com/antlr/grammars-v4/blob/master/rfc822-emailaddress/emailaddress.g4
-
-BSD License
-Copyright (c) 2013, Tom Everett
-All rights reserved.
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions
-are met:
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in the
-   documentation and/or other materials provided with the distribution.
-3. Neither the name of Tom Everett nor the names of its contributors
-   may be used to endorse or promote products derived from this software
-   without specific prior written permission.
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-'AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+from https://www.w3.org/Protocols/rfc822/
 */
 
+// "examples:test1@example.com,test2@example.com;"
+emailaddress = { SOI ~ ( group | mailbox ) ~ EOI }
 
-emailaddress = { SOI ~ (mailbox | group) ~ EOI }
+group = { displayname ~ ":" ~ mailboxes* ~ ";" }
 
-group = { phrase ~ ":" ~ mailbox* ~ ";" }
+mailboxes = { (mailbox | ",") }
 
-// mailbox =  { addrspec }
+displayname = { phrase }
+
 mailbox =  { addrspec | ( phrase ~ routeaddr ) }
+
+// hans<@oke,@paard:peter@example.com>
+// examples:hans<hans@example.com>,peter<peter@example.com>;
+// examples:"Hans Example"<hans@example.com>,peter<peter@example.com>;
 
 routeaddr = {  "<" ~ route* ~ addrspec ~ ">" }
 
-route = { "@" ~ domain ~ ":" }
+route = { ( ("@" ~ domain) | ",")+ ~ ":" }
 
-addrspec = { localpart ~ "@" ~ domain }
+addrspec = _{ localpart ~ "@" ~ domain }
 
 localpart = { word ~ ("." ~ word)* }
 
 domain = { subdomain ~ ("." ~ subdomain)* }
 
-subdomain = _{ domainref | domainliteral }
+subdomain = _{ domainliteral | domainref}
 
 domainref = _{ atom }
 
-phrase = { word+ }
+CHAR = _{ '\u{0000}'..'\u{007F}' }
 
-// word = { atom }
-word = _{ atom | quotedstring }
+ALPHA = _{ '\u{0041}'..'\u{005A}' | '\u{0061}'..'\u{007A}' }
 
-lwspchar = _{ SPACE | HTAB }
+DIGIT = _{ '\u{0030}'..'\u{0039}' }
 
-lwsp = _{ (CRLF? ~ lwspchar)+ }
+CTL = _{ '\u{0000}'..'\u{001F}' | "\u{007F}"}
+
+CR = _{"\u{000D}"}
+
+LF =  _{"\u{000A}"}
+
+SPACE = _{"\u{0020}"}
+
+HTAB = _{"\u{0009}"}
+
+QUOTE = _{"\u{0022}"}
+
+CRLF = _{ CR ~ LF }
+
+LWSPCHAR = _{ SPACE | HTAB }
+
+lwsp = _{ (CRLF? ~ LWSPCHAR)+ }
+
+SPECIALS = _{ "(" | ")" | "<" | ">" | "@"  |  "," | ";" | ":" | "\\" | QUOTE |  "." | "[" | "]" }
 
 delimeters = _{ SPECIALS | lwsp | comment }
 
-//text
- //   : CHAR+;
+text = _{ CHAR }
 
-atom = _{ CHAR+ }
+atom = _{ ( !(SPECIALS | SPACE | CTL ) ~ CHAR)+ }
+
+quotedstring = _{ QUOTE ~ (QTEXT | quotedpair)* ~ QUOTE }
+
+QTEXT =  _{ !( QUOTE | "\\" | CR ) ~ ( CHAR | lwsp )}
+
+domainliteral = _{ "[" ~ (DTEXT | quotedpair)* ~ "]" }
+
+DTEXT = _{ !( "[" | "]" | "\\" | CR ) ~ ( CHAR | lwsp )}
+
+comment = { "(" ~ (CTEXT | quotedpair | comment)* ~ ")" }
+
+CTEXT = _{ !( "(" | ")" | "\\" | CR ) ~ ( CHAR | lwsp )}
 
 quotedpair = _{ "\\" ~ CHAR }
 
-domainliteral = _{ "[" ~ (DTEXT ~ quotedpair)* ~ "]" }
+phrase = _{ word+ }
 
-quotedstring = _{ "\'" ~ (QTEXT ~ quotedpair)* ~ "\'" }
-
-comment = { "(" ~ (CTEXT ~ quotedpair ~ comment)* ~ ")" }
-
-CHAR = { '\u{0000}'..'\u{0039}' | '\u{0041}'..'\u{0127}' } // u0000 till 0127 except '@'
-// CHAR = _{ ASCII_ALPHA }
-
-ALPHA = _{ '\u{0065}'..'\u{0090}' }
-
-DIGIT = _{ '\u{0048}'..'\u{0057}' }
-
-CTL = _{ '\u{0000}'..'\u{0031}' }
-
-CR = _{"\n"}
-
-LF = _{"\r"}
-
-SPACE = _{" "}
-
-HTAB = _{"\t"}
-
-CRLF = _{"\r\n"}
-
-SPECIALS = _{ "(" | ")" | "<" | ">" | "@"  |  "," | ";" | ":" | "\\" | "\'"|  "." | "[" | "]" }
-
-QUOTE = _{"\""}
-
-QTEXT = _{ !("\r" | "\n") }
-
-DTEXT = _{ !("[" | "]" | "\n" | "\\") }
-
-CTEXT = _{ !( "(" | ")" | "\n" | "\\") }
+word = _{ quotedstring | atom }
